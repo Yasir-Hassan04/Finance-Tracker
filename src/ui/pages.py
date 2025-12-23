@@ -2,6 +2,7 @@ from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel
 from PySide6.QtCore import Qt
 
 
+
 class PlaceholderPage(QWidget):
     def __init__(self, title: str, subtitle: str) -> None:
         super().__init__()

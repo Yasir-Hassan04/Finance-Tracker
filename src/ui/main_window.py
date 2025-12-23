@@ -73,6 +73,7 @@ class MainWindow(QMainWindow):
         # Sidebar buttons
         self.buttons = {}
 
+
         for name in self.pages.keys():
             button = QPushButton(name)
             button.setCursor(Qt.PointingHandCursor)
