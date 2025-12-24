@@ -8,14 +8,16 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt
 
+from core.db import Database
 from src.ui.pages import PlaceholderPage
 
 
 class MainWindow(QMainWindow):
-    def __init__(self) -> None:
+    def __init__(self, db: Database) -> None:
         super().__init__()
+        self.db = db
 
-        #name of the app and its size
+        # name of the app and its size
         self.setWindowTitle("Finance Assistant")
         self.setMinimumSize(1000, 650)
 
@@ -35,35 +37,42 @@ class MainWindow(QMainWindow):
         # Main content stack
         self.stack = QStackedWidget()
 
-        # Pages
+        # Pages (pass db so pages can query later)
         self.pages = {
             "Dashboard": PlaceholderPage(
                 "Dashboard",
-                "Overview of spending and alerts."
+                "Overview of spending and alerts.",
+                db=self.db,
             ),
             "Import": PlaceholderPage(
                 "Import",
-                "Import bank transactions (CSV)."
+                "Import bank transactions (CSV).",
+                db=self.db,
             ),
             "Transactions": PlaceholderPage(
                 "Transactions",
-                "Search and review transactions."
+                "Search and review transactions.",
+                db=self.db,
             ),
             "Budgets": PlaceholderPage(
                 "Budgets",
-                "Set monthly budgets."
+                "Set monthly budgets.",
+                db=self.db,
             ),
             "Reports": PlaceholderPage(
                 "Reports",
-                "Monthly and yearly summaries."
+                "Monthly and yearly summaries.",
+                db=self.db,
             ),
             "Settings": PlaceholderPage(
                 "Settings",
-                "Preferences and privacy."
+                "Preferences and privacy.",
+                db=self.db,
             ),
             "Feedback": PlaceholderPage(
                 "Feedback",
-                "Send suggestions or issues."
+                "Send suggestions or issues.",
+                db=self.db,
             ),
         }
 
@@ -73,14 +82,11 @@ class MainWindow(QMainWindow):
         # Sidebar buttons
         self.buttons = {}
 
-
         for name in self.pages.keys():
             button = QPushButton(name)
             button.setCursor(Qt.PointingHandCursor)
             button.setStyleSheet(self._button_style(False))
-            button.clicked.connect(
-                lambda checked=False, n=name: self.show_page(n)
-            )
+            button.clicked.connect(lambda checked=False, n=name: self.show_page(n))
 
             sidebar_layout.addWidget(button)
             self.buttons[name] = button
@@ -97,9 +103,7 @@ class MainWindow(QMainWindow):
         self.stack.setCurrentWidget(self.pages[name])
 
         for btn_name, btn in self.buttons.items():
-            btn.setStyleSheet(
-                self._button_style(btn_name == name)
-            )
+            btn.setStyleSheet(self._button_style(btn_name == name))
 
     @staticmethod
     def _button_style(active: bool) -> str:
