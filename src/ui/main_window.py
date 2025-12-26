@@ -10,7 +10,7 @@ from PySide6.QtCore import Qt
 
 from core.db import Database
 from src.ui.pages import PlaceholderPage
-
+from src.ui.transactions_page import TransactionsPage
 
 class MainWindow(QMainWindow):
     def __init__(self, db: Database) -> None:
@@ -49,11 +49,7 @@ class MainWindow(QMainWindow):
                 "Import bank transactions (CSV).",
                 db=self.db,
             ),
-            "Transactions": PlaceholderPage(
-                "Transactions",
-                "Search and review transactions.",
-                db=self.db,
-            ),
+            "Transactions": TransactionsPage(db=self.db),
             "Budgets": PlaceholderPage(
                 "Budgets",
                 "Set monthly budgets.",
