@@ -4,6 +4,7 @@ from src.ui.main_window import MainWindow
 from core.db import Database, init_db
 
 
+
 def main() -> None:
     app = QApplication(sys.argv)
 
