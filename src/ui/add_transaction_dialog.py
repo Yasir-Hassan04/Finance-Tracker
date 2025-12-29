@@ -1,18 +1,24 @@
 from __future__ import annotations
 
 from typing import Optional
-from PySide6.QtWidgets import QMessageBox
+
 from PySide6.QtCore import QDate
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QComboBox,
-    QDateEdit, QPushButton
+    QDialog,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QComboBox,
+    QDateEdit,
+    QPushButton,
+    QMessageBox,
 )
 
 from core.db import Database
 from core.repos.accounts_repo import AccountsRepo
 from core.repos.categories_repo import CategoriesRepo
 from core.repos.transactions_repo import TransactionsRepo, dollars_to_cents
-
 
 
 class AddTransactionDialog(QDialog):
@@ -28,36 +34,30 @@ class AddTransactionDialog(QDialog):
 
         root = QVBoxLayout(self)
 
-        # Date
         root.addWidget(QLabel("Date"))
         self.date_edit = QDateEdit()
         self.date_edit.setCalendarPopup(True)
         self.date_edit.setDate(QDate.currentDate())
         root.addWidget(self.date_edit)
 
-        # Amount
         root.addWidget(QLabel("Amount (use - for expense, + for income)"))
         self.amount_edit = QLineEdit()
         self.amount_edit.setPlaceholderText("-5.99")
         root.addWidget(self.amount_edit)
 
-        # Account
         root.addWidget(QLabel("Account"))
         self.account_combo = QComboBox()
         root.addWidget(self.account_combo)
 
-        # Category
         root.addWidget(QLabel("Category (optional)"))
         self.category_combo = QComboBox()
         root.addWidget(self.category_combo)
 
-        # Description
         root.addWidget(QLabel("Description (optional)"))
         self.desc_edit = QLineEdit()
         self.desc_edit.setPlaceholderText("e.g., Coffee")
         root.addWidget(self.desc_edit)
 
-        # Buttons
         btn_row = QHBoxLayout()
         self.btn_cancel = QPushButton("Cancel")
         self.btn_save = QPushButton("Save")
@@ -69,12 +69,10 @@ class AddTransactionDialog(QDialog):
         self.btn_cancel.clicked.connect(self.reject)
         self.btn_save.clicked.connect(self._on_save)
 
+        self.created_tx_id: Optional[int] = None
         self._load_dropdowns()
 
-        self.created_tx_id: Optional[int] = None
-
     def _load_dropdowns(self) -> None:
-        # ensure at least one account exists
         default_id = self.accounts_repo.ensure_default_cash_account()
 
         accounts = self.accounts_repo.list_accounts()
@@ -82,7 +80,6 @@ class AddTransactionDialog(QDialog):
         for a in accounts:
             self.account_combo.addItem(a.name, a.id)
 
-        # select default
         idx = self.account_combo.findData(default_id)
         if idx >= 0:
             self.account_combo.setCurrentIndex(idx)
@@ -104,6 +101,7 @@ class AddTransactionDialog(QDialog):
         except ValueError:
             QMessageBox.warning(self, "Invalid amount", "Amount must be a number (e.g., -5.99).")
             return
+
         if self.account_combo.currentData() is None:
             QMessageBox.warning(self, "Missing account", "Please choose an account.")
             return
@@ -112,7 +110,6 @@ class AddTransactionDialog(QDialog):
         account_id = int(self.account_combo.currentData())
         category_id = self.category_combo.currentData()
         description = self.desc_edit.text().strip()
-
         occurred_on = self.date_edit.date().toString("yyyy-MM-dd")
 
         self.created_tx_id = self.tx_repo.add_transaction(

@@ -6,6 +6,8 @@ from PySide6.QtWidgets import (
     QPushButton,
     QStackedWidget,
 )
+from src.ui.import_page import ImportPage
+from src.ui.budgets_page import BudgetsPage
 from PySide6.QtCore import Qt
 from src.ui.accounts_page import AccountsPage
 from core.db import Database
@@ -45,24 +47,17 @@ class MainWindow(QMainWindow):
                 "Overview of spending and alerts.",
                 db=self.db,
             ),
-            "Import": PlaceholderPage(
-                "Import",
-                "Import bank transactions (CSV).",
-                db=self.db,
-            ),
+            "Import": ImportPage(db=self.db),
             "Transactions": TransactionsPage(db=self.db),
-            "Budgets": PlaceholderPage(
-                "Budgets",
-                "Set monthly budgets.",
-                db=self.db,
-            ),
+            "Budgets": BudgetsPage(db=self.db),
             "Reports": PlaceholderPage(
                 "Reports",
                 "Monthly and yearly summaries.",
                 db=self.db,
             ),
-            "Settings": AccountsPage(db=self.db),
-            "Feedback": CategoriesPage(db=self.db),
+            "Accounts": AccountsPage(db=self.db),
+            "Categories": CategoriesPage(db=self.db),
+
         }
 
         for page in self.pages.values():
