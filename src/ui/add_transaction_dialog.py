@@ -9,9 +9,10 @@ from PySide6.QtWidgets import (
 )
 
 from core.db import Database
-from core.repos.transactions_repo import (
-    AccountsRepo, CategoriesRepo, TransactionsRepo, dollars_to_cents
-)
+from core.repos.accounts_repo import AccountsRepo
+from core.repos.categories_repo import CategoriesRepo
+from core.repos.transactions_repo import TransactionsRepo, dollars_to_cents
+
 
 
 class AddTransactionDialog(QDialog):

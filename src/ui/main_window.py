@@ -7,9 +7,10 @@ from PySide6.QtWidgets import (
     QStackedWidget,
 )
 from PySide6.QtCore import Qt
-
+from src.ui.accounts_page import AccountsPage
 from core.db import Database
 from src.ui.pages import PlaceholderPage
+from src.ui.categories_page import CategoriesPage
 from src.ui.transactions_page import TransactionsPage
 
 class MainWindow(QMainWindow):
@@ -60,16 +61,8 @@ class MainWindow(QMainWindow):
                 "Monthly and yearly summaries.",
                 db=self.db,
             ),
-            "Settings": PlaceholderPage(
-                "Settings",
-                "Preferences and privacy.",
-                db=self.db,
-            ),
-            "Feedback": PlaceholderPage(
-                "Feedback",
-                "Send suggestions or issues.",
-                db=self.db,
-            ),
+            "Settings": AccountsPage(db=self.db),
+            "Feedback": CategoriesPage(db=self.db),
         }
 
         for page in self.pages.values():
