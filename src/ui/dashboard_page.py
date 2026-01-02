@@ -157,6 +157,7 @@ class DashboardPage(QWidget):
         layout.addStretch()
         return box
 
+
     @staticmethod
     def _set_card_value(card: QFrame, value: str) -> None:
         lbl = card.findChild(QLabel, "valueLabel")

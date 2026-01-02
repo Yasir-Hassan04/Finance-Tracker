@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (
     QStackedWidget,
 )
 from src.ui.dashboard_page import DashboardPage
+
 from src.ui.import_page import ImportPage
 from src.ui.reports_page import ReportsPage
 from src.ui.budgets_page import BudgetsPage
