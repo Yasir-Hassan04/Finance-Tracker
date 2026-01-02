@@ -13,8 +13,12 @@ from PySide6.QtWidgets import (
     QComboBox,
     QMessageBox,
 )
-
+import csv
+from pathlib import Path
+from PySide6.QtWidgets import QFileDialog
 from core.db import Database
+import shutil
+from core.db import get_db_path
 from src.ui.edit_transaction_dialog import EditTransactionDialog
 from core.repos.transactions_repo import TransactionsRepo, cents_to_dollars_str, dollars_to_cents
 from core.repos.accounts_repo import AccountsRepo
@@ -77,6 +81,38 @@ class TransactionsTableModel(QAbstractTableModel):
 
 class TransactionsPage(QWidget):
 
+    def export_csv(self) -> None:
+        path, _ = QFileDialog.getSaveFileName(self, "Save CSV", "transactions.csv", "CSV Files (*.csv)")
+        if not path:
+            return
+
+        # export exactly what is currently shown in the table
+        rows = self.model._rows
+
+        with Path(path).open("w", newline="", encoding="utf-8") as f:
+            w = csv.writer(f)
+            w.writerow(["Date", "Description", "Account", "Category", "Amount"])
+            for r in rows:
+                w.writerow([
+                    r.occurred_on,
+                    r.description,
+                    r.account_name,
+                    r.category_name,
+                    cents_to_dollars_str(r.amount_cents),
+                ])
+
+    def backup_db(self) -> None:
+        dst, _ = QFileDialog.getSaveFileName(self, "Save Backup", "finance_backup.db", "DB Files (*.db)")
+        if not dst:
+            return
+
+        src = get_db_path()
+        try:
+            shutil.copy2(src, dst)
+            QMessageBox.information(self, "Backup saved", f"Saved backup to:\n{dst}")
+        except Exception as e:
+            QMessageBox.warning(self, "Backup failed", str(e))
+
     def open_edit_dialog(self, index) -> None:
         row = self.model.row_at(index.row())
         if row is None:
@@ -100,8 +136,14 @@ class TransactionsPage(QWidget):
         self.btn_add = QPushButton("Add")
         self.btn_apply = QPushButton("Apply")
         self.btn_clear = QPushButton("Clear")
+        self.btn_export = QPushButton("Export CSV")
+        top.addWidget(self.btn_export)
+        self.btn_export.clicked.connect(self.export_csv)
         self.btn_refresh = QPushButton("Refresh")
         self.btn_delete = QPushButton("Delete Selected")
+        self.btn_backup = QPushButton("Backup DB")
+        top.addWidget(self.btn_backup)
+        self.btn_backup.clicked.connect(self.backup_db)
 
         top.addWidget(self.btn_add)
         top.addWidget(self.btn_apply)
