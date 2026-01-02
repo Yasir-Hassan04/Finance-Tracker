@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (
     QStackedWidget,
 )
 from src.ui.import_page import ImportPage
+from src.ui.reports_page import ReportsPage
 from src.ui.budgets_page import BudgetsPage
 from PySide6.QtCore import Qt
 from src.ui.accounts_page import AccountsPage
@@ -50,11 +51,7 @@ class MainWindow(QMainWindow):
             "Import": ImportPage(db=self.db),
             "Transactions": TransactionsPage(db=self.db),
             "Budgets": BudgetsPage(db=self.db),
-            "Reports": PlaceholderPage(
-                "Reports",
-                "Monthly and yearly summaries.",
-                db=self.db,
-            ),
+            "Reports": ReportsPage(db=self.db),
             "Accounts": AccountsPage(db=self.db),
             "Categories": CategoriesPage(db=self.db),
 
