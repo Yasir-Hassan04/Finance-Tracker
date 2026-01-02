@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 )
 
 from core.db import Database
+from src.ui.edit_transaction_dialog import EditTransactionDialog
 from core.repos.transactions_repo import TransactionsRepo, cents_to_dollars_str, dollars_to_cents
 from core.repos.accounts_repo import AccountsRepo
 from core.repos.categories_repo import CategoriesRepo
@@ -75,6 +76,15 @@ class TransactionsTableModel(QAbstractTableModel):
 
 
 class TransactionsPage(QWidget):
+
+    def open_edit_dialog(self, index) -> None:
+        row = self.model.row_at(index.row())
+        if row is None:
+            return
+        dlg = EditTransactionDialog(self.db, transaction_id=row.id, parent=self)
+        if dlg.exec() == QDialog.Accepted:
+            self.refresh()
+
     def __init__(self, db: Database) -> None:
         super().__init__()
         self.db = db
@@ -146,6 +156,7 @@ class TransactionsPage(QWidget):
         self.table.setSortingEnabled(False)
         self.table.horizontalHeader().setStretchLastSection(True)
         root.addWidget(self.table)
+        self.table.doubleClicked.connect(self.open_edit_dialog)
 
         # wiring
         self.btn_add.clicked.connect(self.open_add_dialog)

@@ -154,6 +154,49 @@ class TransactionsRepo:
             )
             for r in rows
         ]
+    def get_transaction(self, transaction_id: int) -> Optional[dict]:
+        row = self.db.query_one(
+            """
+            SELECT id, account_id, category_id, amount_cents, description, occurred_on
+            FROM transactions
+            WHERE id = ?;
+            """,
+            (transaction_id,),
+        )
+        if row is None:
+            return None
+        return {
+            "id": int(row["id"]),
+            "account_id": int(row["account_id"]),
+            "category_id": (int(row["category_id"]) if row["category_id"] is not None else None),
+            "amount_cents": int(row["amount_cents"]),
+            "description": str(row["description"] or ""),
+            "occurred_on": str(row["occurred_on"]),
+        }
+
+    def update_transaction(
+        self,
+        *,
+        transaction_id: int,
+        account_id: int,
+        category_id: Optional[int],
+        amount_cents: int,
+        occurred_on: str,
+        description: str,
+    ) -> None:
+        self.db.execute(
+            """
+            UPDATE transactions
+            SET account_id = ?,
+                category_id = ?,
+                amount_cents = ?,
+                description = ?,
+                occurred_on = ?
+            WHERE id = ?;
+            """,
+            (account_id, category_id, amount_cents, description, occurred_on, transaction_id),
+        )
+
     def search_transactions(
         self,
         *,
