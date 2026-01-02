@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -64,6 +65,7 @@ class ImportPage(QWidget):
         super().__init__()
         self.db = db
 
+        self.csv_path: Path | None = None
         self._headers: list[str] = []
         self._rows: list[list[str]] = []
         self.tx_repo = TransactionsRepo(self.db)
@@ -76,11 +78,15 @@ class ImportPage(QWidget):
         self.path_label = QLabel("No file selected")
         self.path_label.setStyleSheet("color: #888888;")
 
+        self.btn_preview = QPushButton("Preview Import")
+        self.btn_preview.setEnabled(False)
+
         self.btn_import = QPushButton("Import")
         self.btn_import.setEnabled(False)
 
         top.addWidget(self.btn_choose)
         top.addWidget(self.path_label, 1)
+        top.addWidget(self.btn_preview)
         top.addWidget(self.btn_import)
         root.addLayout(top)
 
@@ -133,18 +139,22 @@ class ImportPage(QWidget):
         root.addWidget(self.table)
 
         self.btn_choose.clicked.connect(self.choose_csv)
+        self.btn_preview.clicked.connect(self.preview_import)
         self.btn_import.clicked.connect(self.import_csv)
 
+    # ---------------- UI actions ----------------
     def choose_csv(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "Select CSV", "", "CSV Files (*.csv)")
         if not path:
             return
 
+        self.csv_path = Path(path)
         self.path_label.setText(path)
         self.status_label.setText("")
+        self.btn_preview.setEnabled(False)
         self.btn_import.setEnabled(False)
 
-        headers, rows = self._read_csv_preview(Path(path), limit=500)
+        headers, rows = self._read_csv_preview(self.csv_path, limit=200)
 
         self._headers = headers
         self._rows = rows
@@ -153,10 +163,57 @@ class ImportPage(QWidget):
         self.model.set_data(headers, rows)
         self.table.resizeColumnsToContents()
 
-        if headers and rows:
+        if headers:
+            self.btn_preview.setEnabled(True)
             self.btn_import.setEnabled(True)
 
+    def preview_import(self) -> None:
+        if self.csv_path is None:
+            return
+
+        ok, msg = self._validate_mapping()
+        if not ok:
+            QMessageBox.warning(self, "Missing mapping", msg)
+            return
+
+        valid, dup, failed, errors = self._scan_full_file(self.csv_path, dry_run=True)
+
+        text = f"Preview: Valid {valid} • Duplicates {dup} • Failed {failed}."
+        if errors:
+            text += "  First errors: " + " | ".join(errors)
+        self.status_label.setText(text)
+
     def import_csv(self) -> None:
+        if self.csv_path is None:
+            return
+
+        ok, msg = self._validate_mapping()
+        if not ok:
+            QMessageBox.warning(self, "Missing mapping", msg)
+            return
+
+        valid, dup, failed, _ = self._scan_full_file(self.csv_path, dry_run=True)
+
+        confirm = QMessageBox.question(
+            self,
+            "Confirm Import",
+            f"This will import {valid} rows.\n"
+            f"Duplicates skipped: {dup}\n"
+            f"Failed rows: {failed}\n\n"
+            f"Continue?",
+        )
+        if confirm != QMessageBox.Yes:
+            return
+
+        imported, skipped, failed2, errors2 = self._scan_full_file(self.csv_path, dry_run=False)
+
+        msg2 = f"Imported {imported} • Skipped {skipped} duplicates • Failed {failed2}."
+        if errors2:
+            msg2 += "  First errors: " + " | ".join(errors2)
+        self.status_label.setText(msg2)
+
+    # ---------------- Core logic ----------------
+    def _validate_mapping(self) -> tuple[bool, str]:
         d_i = int(self.date_col.currentData())
         s_i = int(self.desc_col.currentData())
         amt_i = int(self.amount_col.currentData())
@@ -165,47 +222,57 @@ class ImportPage(QWidget):
         account_id = self.account_combo.currentData()
 
         if d_i == -1 or s_i == -1 or account_id is None:
-            QMessageBox.warning(self, "Missing mapping", "Please choose Date, Desc, and an Account.")
-            return
+            return False, "Please choose Date, Desc, and an Account."
 
         if amt_i == -1 and (debit_i == -1 and credit_i == -1):
-            QMessageBox.warning(self, "Missing amount mapping", "Choose Amount, or Debit/Credit columns.")
-            return
+            return False, "Choose Amount, or Debit/Credit columns."
+
+        return True, ""
+
+    def _scan_full_file(self, path: Path, dry_run: bool) -> tuple[int, int, int, list[str]]:
+        d_i = int(self.date_col.currentData())
+        s_i = int(self.desc_col.currentData())
+        amt_i = int(self.amount_col.currentData())
+        debit_i = int(self.debit_col.currentData())
+        credit_i = int(self.credit_col.currentData())
+        account_id = int(self.account_combo.currentData())
 
         imported = 0
         skipped = 0
         failed = 0
         errors: list[str] = []
 
-        for row in self._rows:
-            try:
-                date_raw = row[d_i].strip()
-                desc = row[s_i].strip()
+        with path.open("r", newline="", encoding="utf-8-sig") as f:
+            reader = csv.reader(f)
+            _ = next(reader, None)  # headers
+            for row in reader:
+                try:
+                    date_raw = row[d_i].strip() if d_i < len(row) else ""
+                    desc = row[s_i].strip() if s_i < len(row) else ""
 
-                occurred_on = self._parse_date(date_raw)
-                amount_cents = self._amount_from_row(row, amt_i, debit_i, credit_i)
+                    occurred_on = self._parse_date(date_raw)
+                    amount_cents = self._amount_from_row(row, amt_i, debit_i, credit_i)
 
-                if self._transaction_exists(int(account_id), occurred_on, amount_cents, desc):
-                    skipped += 1
-                    continue
+                    if self._transaction_exists(account_id, occurred_on, amount_cents, desc):
+                        skipped += 1
+                        continue
 
-                self.tx_repo.add_transaction(
-                    account_id=int(account_id),
-                    category_id=None,
-                    amount_cents=amount_cents,
-                    occurred_on=occurred_on,
-                    description=desc,
-                )
-                imported += 1
-            except Exception as e:
-                failed += 1
-                if len(errors) < 5:
-                    errors.append(str(e))
+                    if not dry_run:
+                        self.tx_repo.add_transaction(
+                            account_id=account_id,
+                            category_id=None,
+                            amount_cents=amount_cents,
+                            occurred_on=occurred_on,
+                            description=desc,
+                        )
 
-        msg = f"Imported {imported} • Skipped {skipped} duplicates • Failed {failed}."
-        if errors:
-            msg += "  First errors: " + " | ".join(errors)
-        self.status_label.setText(msg)
+                    imported += 1
+                except Exception as e:
+                    failed += 1
+                    if len(errors) < 5:
+                        errors.append(str(e))
+
+        return imported, skipped, failed, errors
 
     def _transaction_exists(self, account_id: int, occurred_on: str, amount_cents: int, description: str) -> bool:
         row = self.db.query_one(
@@ -255,13 +322,13 @@ class ImportPage(QWidget):
                         cb.setCurrentIndex(idx)
                     return
 
-        pick(self.date_col, ["date", "posted", "transaction date"])
-        pick(self.desc_col, ["description", "details", "merchant", "name"])
-        pick(self.amount_col, ["amount", "amt", "value"])
-        pick(self.debit_col, ["debit", "withdrawal"])
-        pick(self.credit_col, ["credit", "deposit"])
+        pick(self.date_col, ["date", "posted", "posting", "transaction date", "trans date"])
+        pick(self.desc_col, ["description", "details", "merchant", "name", "memo", "payee"])
+        pick(self.amount_col, ["amount", "amt", "value", "transaction amount", "total"])
+        pick(self.debit_col, ["debit", "withdrawal", "money out", "spent"])
+        pick(self.credit_col, ["credit", "deposit", "money in", "received"])
 
-    def _read_csv_preview(self, path: Path, limit: int = 500) -> tuple[list[str], list[list[str]]]:
+    def _read_csv_preview(self, path: Path, limit: int = 200) -> tuple[list[str], list[list[str]]]:
         with path.open("r", newline="", encoding="utf-8-sig") as f:
             reader = csv.reader(f)
             headers = next(reader, [])
@@ -273,24 +340,65 @@ class ImportPage(QWidget):
         return headers, rows
 
     def _parse_date(self, s: str) -> str:
-        s = s.strip()
-        for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y", "%b %d %Y", "%B %d %Y"):
+        s = (s or "").strip()
+        if not s:
+            raise ValueError("Missing date")
+
+        s2 = s.replace(".", "/").strip()
+
+        fmts = (
+            "%Y-%m-%d",
+            "%Y/%m/%d",
+            "%m/%d/%Y",
+            "%d/%m/%Y",
+            "%d-%b-%Y",  # 02-Jan-2026
+            "%d-%B-%Y",  # 02-January-2026
+            "%b %d %Y",
+            "%B %d %Y",
+        )
+
+        for fmt in fmts:
             try:
-                return datetime.strptime(s, fmt).strftime("%Y-%m-%d")
+                return datetime.strptime(s2, fmt).strftime("%Y-%m-%d")
             except ValueError:
                 pass
-        if len(s) >= 10:
-            return s[:10]
-        raise ValueError("Unrecognized date")
+
+        if len(s) >= 10 and s[4] in "-/" and s[7] in "-/":
+            return s[:10].replace("/", "-")
+
+        raise ValueError(f"Unrecognized date: {s}")
 
     def _parse_amount_to_cents(self, s: str) -> int:
-        t = s.replace("$", "").replace(",", "").strip()
-        negative = False
+        raw = (s or "").strip()
+        if not raw:
+            raise ValueError("Missing amount")
 
+        t = raw.strip()
+        sign = 1
+
+        # Parentheses = negative
         if t.startswith("(") and t.endswith(")"):
-            negative = True
+            sign = -1
             t = t[1:-1].strip()
 
-        val = float(t)
-        cents = int(round(val * 100))
-        return -abs(cents) if negative else cents
+        low = t.lower()
+
+        # DR/DEBIT negative, CR/CREDIT positive
+        if any(x in low for x in [" dr", "dr ", "debit", "withdrawal"]):
+            sign = -1
+        if any(x in low for x in [" cr", "cr ", "credit", "deposit"]):
+            sign = 1
+
+        # Remove all but digits, dot, minus, plus
+        cleaned = re.sub(r"[^0-9\.\-\+]", "", t)
+
+        if not cleaned or cleaned in ["-", "+", ".", "-.", "+."]:
+            raise ValueError(f"Invalid amount: {raw}")
+
+        # Leading '-' overrides sign
+        if cleaned.startswith("-"):
+            sign = -1
+
+        val = float(cleaned)
+        cents = int(round(abs(val) * 100))
+        return sign * cents
