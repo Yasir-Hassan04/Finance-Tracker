@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QStackedWidget,
 )
+from src.ui.dashboard_page import DashboardPage
 from src.ui.import_page import ImportPage
 from src.ui.reports_page import ReportsPage
 from src.ui.budgets_page import BudgetsPage
@@ -43,11 +44,7 @@ class MainWindow(QMainWindow):
 
         # Pages (pass db so pages can query later)
         self.pages = {
-            "Dashboard": PlaceholderPage(
-                "Dashboard",
-                "Overview of spending and alerts.",
-                db=self.db,
-            ),
+            "Dashboard": DashboardPage(db=self.db),
             "Import": ImportPage(db=self.db),
             "Transactions": TransactionsPage(db=self.db),
             "Budgets": BudgetsPage(db=self.db),
