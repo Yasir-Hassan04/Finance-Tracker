@@ -154,6 +154,76 @@ class TransactionsRepo:
             )
             for r in rows
         ]
+    def search_transactions(
+        self,
+        *,
+        limit: int = 500,
+        date_from: Optional[str] = None,   # YYYY-MM-DD
+        date_to: Optional[str] = None,     # YYYY-MM-DD
+        account_id: Optional[int] = None,
+        category_id: Optional[int] = None,
+        text: Optional[str] = None,
+        min_cents: Optional[int] = None,
+        max_cents: Optional[int] = None,
+    ) -> list[TransactionRow]:
+        sql = """
+            SELECT
+                t.id,
+                t.occurred_on,
+                COALESCE(t.description, '') AS description,
+                a.name AS account_name,
+                COALESCE(c.name, 'Uncategorized') AS category_name,
+                t.amount_cents
+            FROM transactions t
+            JOIN accounts a ON a.id = t.account_id
+            LEFT JOIN categories c ON c.id = t.category_id
+        """
+        where: list[str] = []
+        params: list[object] = []
+
+        if date_from:
+            where.append("t.occurred_on >= ?")
+            params.append(date_from)
+        if date_to:
+            where.append("t.occurred_on <= ?")
+            params.append(date_to)
+        if account_id is not None:
+            where.append("t.account_id = ?")
+            params.append(account_id)
+        if category_id is not None:
+            where.append("t.category_id = ?")
+            params.append(category_id)
+        if text:
+            where.append("COALESCE(t.description,'') LIKE ?")
+            params.append(f"%{text}%")
+        if min_cents is not None:
+            where.append("t.amount_cents >= ?")
+            params.append(min_cents)
+        if max_cents is not None:
+            where.append("t.amount_cents <= ?")
+            params.append(max_cents)
+
+        if where:
+            sql += " WHERE " + " AND ".join(where)
+
+        sql += """
+            ORDER BY t.occurred_on DESC, t.id DESC
+            LIMIT ?;
+        """
+        params.append(limit)
+
+        rows = self.db.query_all(sql, params)
+        return [
+            TransactionRow(
+                id=int(r["id"]),
+                occurred_on=str(r["occurred_on"]),
+                description=str(r["description"]),
+                account_name=str(r["account_name"]),
+                category_name=str(r["category_name"]),
+                amount_cents=int(r["amount_cents"]),
+            )
+            for r in rows
+        ]
 
     def add_transaction(
         self,

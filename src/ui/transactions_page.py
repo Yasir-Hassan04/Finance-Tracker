@@ -8,10 +8,16 @@ from PySide6.QtWidgets import (
     QPushButton,
     QTableView,
     QDialog,
+    QLabel,
+    QLineEdit,
+    QComboBox,
+    QMessageBox,
 )
 
 from core.db import Database
-from core.repos.transactions_repo import TransactionsRepo, cents_to_dollars_str
+from core.repos.transactions_repo import TransactionsRepo, cents_to_dollars_str, dollars_to_cents
+from core.repos.accounts_repo import AccountsRepo
+from core.repos.categories_repo import CategoriesRepo
 from src.ui.add_transaction_dialog import AddTransactionDialog
 
 
@@ -74,18 +80,64 @@ class TransactionsPage(QWidget):
         self.db = db
         self.repo = TransactionsRepo(db)
 
+        self.accounts_repo = AccountsRepo(db)
+        self.categories_repo = CategoriesRepo(db)
+
         root = QVBoxLayout(self)
 
+        # --- Buttons row ---
         top = QHBoxLayout()
         self.btn_add = QPushButton("Add")
+        self.btn_apply = QPushButton("Apply")
+        self.btn_clear = QPushButton("Clear")
         self.btn_refresh = QPushButton("Refresh")
         self.btn_delete = QPushButton("Delete Selected")
+
         top.addWidget(self.btn_add)
+        top.addWidget(self.btn_apply)
+        top.addWidget(self.btn_clear)
         top.addWidget(self.btn_refresh)
         top.addWidget(self.btn_delete)
         top.addStretch()
         root.addLayout(top)
 
+        # --- Filters row ---
+        filters = QHBoxLayout()
+
+        self.date_from = QLineEdit()
+        self.date_from.setPlaceholderText("From YYYY-MM-DD")
+        self.date_to = QLineEdit()
+        self.date_to.setPlaceholderText("To YYYY-MM-DD")
+
+        self.text_edit = QLineEdit()
+        self.text_edit.setPlaceholderText("Search description")
+
+        self.min_amt = QLineEdit()
+        self.min_amt.setPlaceholderText("Min $")
+        self.max_amt = QLineEdit()
+        self.max_amt.setPlaceholderText("Max $")
+
+        self.account_combo = QComboBox()
+        self.category_combo = QComboBox()
+
+        filters.addWidget(QLabel("From"))
+        filters.addWidget(self.date_from)
+        filters.addWidget(QLabel("To"))
+        filters.addWidget(self.date_to)
+        filters.addWidget(QLabel("Text"))
+        filters.addWidget(self.text_edit, 1)
+        filters.addWidget(QLabel("Min"))
+        filters.addWidget(self.min_amt)
+        filters.addWidget(QLabel("Max"))
+        filters.addWidget(self.max_amt)
+        filters.addWidget(QLabel("Account"))
+        filters.addWidget(self.account_combo)
+        filters.addWidget(QLabel("Category"))
+        filters.addWidget(self.category_combo)
+
+        root.addLayout(filters)
+
+        # --- Table ---
         self.table = QTableView()
         self.model = TransactionsTableModel()
         self.table.setModel(self.model)
@@ -95,19 +147,81 @@ class TransactionsPage(QWidget):
         self.table.horizontalHeader().setStretchLastSection(True)
         root.addWidget(self.table)
 
+        # wiring
         self.btn_add.clicked.connect(self.open_add_dialog)
+        self.btn_apply.clicked.connect(self.apply_filters)
+        self.btn_clear.clicked.connect(self.clear_filters)
         self.btn_refresh.clicked.connect(self.refresh)
         self.btn_delete.clicked.connect(self.delete_selected)
 
+        self._load_filter_dropdowns()
         self.refresh()
+
+    def _load_filter_dropdowns(self) -> None:
+        # Accounts
+        self.accounts_repo.ensure_default_cash_account()
+        accounts = self.accounts_repo.list_accounts()
+        self.account_combo.clear()
+        self.account_combo.addItem("All", None)
+        for a in accounts:
+            self.account_combo.addItem(a.name, a.id)
+
+        # Categories
+        cats = self.categories_repo.list_categories()
+        self.category_combo.clear()
+        self.category_combo.addItem("All", None)
+        for c in cats:
+            self.category_combo.addItem(f"{c.name} ({c.kind})", c.id)
 
     def open_add_dialog(self) -> None:
         dlg = AddTransactionDialog(self.db, parent=self)
         if dlg.exec() == QDialog.Accepted:
             self.refresh()
 
+    def clear_filters(self) -> None:
+        self.date_from.setText("")
+        self.date_to.setText("")
+        self.text_edit.setText("")
+        self.min_amt.setText("")
+        self.max_amt.setText("")
+        self.account_combo.setCurrentIndex(0)   # All
+        self.category_combo.setCurrentIndex(0)  # All
+        self.refresh()
+
+    def apply_filters(self) -> None:
+        self.refresh()
+
     def refresh(self) -> None:
-        rows = self.repo.list_transactions(limit=500)
+        # collect filters
+        d_from = self.date_from.text().strip() or None
+        d_to = self.date_to.text().strip() or None
+        text = self.text_edit.text().strip() or None
+
+        account_id = self.account_combo.currentData()
+        category_id = self.category_combo.currentData()
+
+        min_cents = None
+        max_cents = None
+
+        try:
+            if self.min_amt.text().strip():
+                min_cents = dollars_to_cents(float(self.min_amt.text().strip()))
+            if self.max_amt.text().strip():
+                max_cents = dollars_to_cents(float(self.max_amt.text().strip()))
+        except ValueError:
+            QMessageBox.warning(self, "Invalid amount", "Min/Max must be numbers like 10.00")
+            return
+
+        rows = self.repo.search_transactions(
+            limit=500,
+            date_from=d_from,
+            date_to=d_to,
+            account_id=account_id,
+            category_id=category_id,
+            text=text,
+            min_cents=min_cents,
+            max_cents=max_cents,
+        )
         self.model.set_rows(rows)
         self.table.resizeColumnsToContents()
 
