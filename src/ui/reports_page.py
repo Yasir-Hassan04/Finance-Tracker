@@ -3,131 +3,151 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 
-from PySide6.QtCore import Qt, QAbstractTableModel, QModelIndex
-from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QPushButton, QTableView
-)
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox
+
+from matplotlib.figure import Figure
+
+# backend import (works across setups)
+try:
+    from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
+except Exception:
+    from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 
 from core.db import Database
-from core.repos.reports_repo import ReportsRepo
-
-
-def cents_to_dollars_str(cents: int) -> str:
-    sign = "-" if cents < 0 else ""
-    cents = abs(int(cents))
-    return f"{sign}${cents // 100}.{cents % 100:02d}"
 
 
 @dataclass(frozen=True)
-class CategorySpendRow:
-    category_name: str
-    spent_cents: int
+class CategoryRow:
+    category: str
+    cents: int  # may be positive or negative depending on mode
 
 
-class CategorySpendModel(QAbstractTableModel):
-    HEADERS = ["Category", "Spent"]
-
-    def __init__(self) -> None:
-        super().__init__()
-        self._rows: list[CategorySpendRow] = []
-
-    def set_rows(self, rows: list[CategorySpendRow]) -> None:
-        self.beginResetModel()
-        self._rows = rows
-        self.endResetModel()
-
-    def rowCount(self, parent=QModelIndex()) -> int:
-        return len(self._rows)
-
-    def columnCount(self, parent=QModelIndex()) -> int:
-        return len(self.HEADERS)
-
-    def data(self, index: QModelIndex, role: int = Qt.DisplayRole):
-        if not index.isValid():
-            return None
-
-        r = self._rows[index.row()]
-        c = index.column()
-
-        if role == Qt.DisplayRole:
-            if c == 0:
-                return r.category_name
-            if c == 1:
-                return cents_to_dollars_str(r.spent_cents)
-
-        if role == Qt.TextAlignmentRole and c == 1:
-            return Qt.AlignRight | Qt.AlignVCenter
-
-        return None
-
-    def headerData(self, section: int, orientation: Qt.Orientation, role: int = Qt.DisplayRole):
-        if role != Qt.DisplayRole:
-            return None
-        if orientation == Qt.Horizontal:
-            return self.HEADERS[section]
-        return str(section + 1)
+def cents_to_dollars(cents: int) -> float:
+    return int(cents) / 100.0
 
 
 class ReportsPage(QWidget):
     def __init__(self, db: Database) -> None:
         super().__init__()
         self.db = db
-        self.repo = ReportsRepo(db)
 
         root = QVBoxLayout(self)
 
         top = QHBoxLayout()
 
         self.month_combo = QComboBox()
-        for m in self._recent_months(24):
+        for m in self._recent_months(18):
             self.month_combo.addItem(m, m)
 
-        self.btn_refresh = QPushButton("Refresh")
+        self.mode_combo = QComboBox()
+        self.mode_combo.addItem("Spending", "spend")  # expenses only
+        self.mode_combo.addItem("Income", "income")   # income only
+        self.mode_combo.addItem("Net", "net")         # income - spending
+
+        self.topn_combo = QComboBox()
+        for n in (5, 10, 15, 20):
+            self.topn_combo.addItem(f"Top {n}", n)
 
         top.addWidget(QLabel("Month"))
         top.addWidget(self.month_combo)
-        top.addWidget(self.btn_refresh)
+        top.addWidget(QLabel("Mode"))
+        top.addWidget(self.mode_combo)
+        top.addWidget(QLabel("Show"))
+        top.addWidget(self.topn_combo)
         top.addStretch()
         root.addLayout(top)
 
-        # Totals row
-        totals_row = QHBoxLayout()
-        self.lbl_income = QLabel("Income: $0.00")
-        self.lbl_expense = QLabel("Expense: $0.00")
-        self.lbl_net = QLabel("Net: $0.00")
+        self.figure = Figure(figsize=(6, 4))
+        self.canvas = FigureCanvas(self.figure)
+        root.addWidget(self.canvas, 1)
 
-        totals_row.addWidget(self.lbl_income)
-        totals_row.addWidget(self.lbl_expense)
-        totals_row.addWidget(self.lbl_net)
-        totals_row.addStretch()
-        root.addLayout(totals_row)
-
-        # Table
-        self.table = QTableView()
-        self.model = CategorySpendModel()
-        self.table.setModel(self.model)
-        self.table.horizontalHeader().setStretchLastSection(True)
-        root.addWidget(self.table)
-
-        self.btn_refresh.clicked.connect(self.refresh)
         self.month_combo.currentIndexChanged.connect(self.refresh)
+        self.mode_combo.currentIndexChanged.connect(self.refresh)
+        self.topn_combo.currentIndexChanged.connect(self.refresh)
 
         self.refresh()
 
     def refresh(self) -> None:
         month = str(self.month_combo.currentData())
+        mode = str(self.mode_combo.currentData())  # spend / income / net
+        topn = int(self.topn_combo.currentData())
 
-        totals = self.repo.month_totals(month)
-        self.lbl_income.setText(f"Income: {cents_to_dollars_str(totals.income_cents)}")
-        self.lbl_expense.setText(f"Expense: {cents_to_dollars_str(totals.expense_cents)}")
-        self.lbl_net.setText(f"Net: {cents_to_dollars_str(totals.net_cents)}")
+        rows = self._category_rows(month, mode)
 
-        rows = [
-            CategorySpendRow(category_name=name, spent_cents=spent)
-            for (name, spent) in self.repo.month_spend_by_category(month)
-        ]
-        self.model.set_rows(rows)
-        self.table.resizeColumnsToContents()
+        self.figure.clear()
+        ax = self.figure.add_subplot(111)
+
+        if not rows:
+            ax.text(0.5, 0.5, "No data for this month.", ha="center", va="center")
+            ax.set_axis_off()
+            self.canvas.draw()
+            return
+
+        # sort and keep top N (by absolute magnitude so net works nicely)
+        rows = sorted(rows, key=lambda r: abs(r.cents), reverse=True)[:topn]
+
+        cats = [r.category for r in rows]
+        vals = [cents_to_dollars(r.cents) for r in rows]
+
+        ax.bar(cats, vals)
+        ax.axhline(0)  # helpful for Net mode
+        ax.set_title(f"{self._mode_title(mode)} by Category ({month})")
+        ax.set_ylabel("Dollars")
+        ax.tick_params(axis="x", rotation=35)
+
+        self.figure.tight_layout()
+        self.canvas.draw()
+
+    def _category_rows(self, month: str, mode: str) -> list[CategoryRow]:
+        start = f"{month}-01"
+        y = int(month[:4])
+        m = int(month[5:7])
+        end = f"{y+1:04d}-01-01" if m == 12 else f"{y:04d}-{m+1:02d}-01"
+
+        if mode == "spend":
+            sql = """
+                SELECT COALESCE(c.name, 'Uncategorized') AS category,
+                       SUM(CASE WHEN t.amount_cents < 0 THEN -t.amount_cents ELSE 0 END) AS cents
+                FROM transactions t
+                LEFT JOIN categories c ON c.id = t.category_id
+                WHERE t.occurred_on >= ? AND t.occurred_on < ?
+                GROUP BY category
+                HAVING cents > 0
+                ORDER BY cents DESC;
+            """
+        elif mode == "income":
+            sql = """
+                SELECT COALESCE(c.name, 'Uncategorized') AS category,
+                       SUM(CASE WHEN t.amount_cents > 0 THEN t.amount_cents ELSE 0 END) AS cents
+                FROM transactions t
+                LEFT JOIN categories c ON c.id = t.category_id
+                WHERE t.occurred_on >= ? AND t.occurred_on < ?
+                GROUP BY category
+                HAVING cents > 0
+                ORDER BY cents DESC;
+            """
+        else:  # net
+            sql = """
+                SELECT COALESCE(c.name, 'Uncategorized') AS category,
+                       SUM(t.amount_cents) AS cents
+                FROM transactions t
+                LEFT JOIN categories c ON c.id = t.category_id
+                WHERE t.occurred_on >= ? AND t.occurred_on < ?
+                GROUP BY category
+                HAVING cents != 0
+                ORDER BY ABS(cents) DESC;
+            """
+
+        rows = self.db.query_all(sql, (start, end))
+        return [CategoryRow(category=str(r["category"]), cents=int(r["cents"])) for r in rows]
+
+    @staticmethod
+    def _mode_title(mode: str) -> str:
+        if mode == "spend":
+            return "Spending"
+        if mode == "income":
+            return "Income"
+        return "Net"
 
     @staticmethod
     def _recent_months(n: int) -> list[str]:
