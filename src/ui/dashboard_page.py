@@ -125,11 +125,11 @@ class DashboardPage(QWidget):
         self._set_card_value(self.card_expense, cents_to_dollars_str(summary.expense_cents))
         self._set_card_value(self.card_net, cents_to_dollars_str(summary.net_cents))
 
-        top = self.repo.top_spend_categories(month, limit=1)
+        top = self.repo.top_spend_categories(month, limit=3)
         top_text = "—"
         if top:
-            name, cents = top[0]
-            top_text = f"{name} ({cents_to_dollars_str(cents)})"
+            parts = [f"{name} ({cents_to_dollars_str(cents)})" for name, cents in top]
+            top_text = " | ".join(parts)
         self._set_card_value(self.card_top, top_text)
 
         recent = self.repo.recent_transactions(limit=12)
